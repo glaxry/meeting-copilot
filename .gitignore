@@ -1,0 +1,38 @@
+# User-provided planning document
+Autumn project2.md
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+pytest-cache-files-*/
+.mypy_cache/
+.coverage
+.ruff_cache/
+
+# Virtual environments
+.venv/
+.miniconda3/
+.cache/
+
+# Build outputs
+build/
+dist/
+cmake-build*/
+CMakeCache.txt
+CMakeFiles/
+Testing/
+compile_commands.json
+*.obj
+*.lib
+*.exp
+*.dll
+*.pyd
+
+# IDE
+.vs/
+.vscode/
+
+# Data and models
+models/
+*.bin
