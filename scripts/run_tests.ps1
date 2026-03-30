@@ -1,15 +1,31 @@
 ﻿param(
-    [string]$CondaRoot = ".miniconda3",
+    [string]$CondaRoot = "D:\anaconda",
     [string]$EnvName = "meeting-copilot-day1"
 )
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$pythonPath = Join-Path $repoRoot "$CondaRoot\envs\$EnvName\python.exe"
+function Get-CondaEnvPythonPath {
+    param(
+        [string]$Root,
+        [string]$Name
+    )
 
-if (-not (Test-Path $pythonPath)) {
-    throw "Conda environment python was not found at $pythonPath. Create the environment first."
+    $candidates = @(
+        (Join-Path $Root "envs\$Name\python.exe"),
+        (Join-Path $HOME ".conda\envs\$Name\python.exe"),
+        (Join-Path $env:USERPROFILE ".conda\envs\$Name\python.exe")
+    ) | Select-Object -Unique
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    throw "Conda environment python was not found in any expected location for $Name."
 }
+
+$pythonPath = Get-CondaEnvPythonPath -Root $CondaRoot -Name $EnvName
 
 & $pythonPath -m pytest

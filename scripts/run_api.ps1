@@ -1,16 +1,33 @@
 ﻿param(
-    [string]$CondaRoot = ".miniconda3",
+    [string]$CondaRoot = "D:\anaconda",
     [string]$EnvName = "meeting-copilot-day1",
     [int]$Port = 8000
 )
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$pythonPath = Join-Path $repoRoot "$CondaRoot\envs\$EnvName\python.exe"
+function Get-CondaEnvPythonPath {
+    param(
+        [string]$Root,
+        [string]$Name
+    )
 
-if (-not (Test-Path $pythonPath)) {
-    throw "Conda environment python was not found at $pythonPath. Create the environment first."
+    $candidates = @(
+        (Join-Path $Root "envs\$Name\python.exe"),
+        (Join-Path $HOME ".conda\envs\$Name\python.exe"),
+        (Join-Path $env:USERPROFILE ".conda\envs\$Name\python.exe")
+    ) | Select-Object -Unique
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    throw "Conda environment python was not found in any expected location for $Name."
 }
+
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$pythonPath = Get-CondaEnvPythonPath -Root $CondaRoot -Name $EnvName
 
 & $pythonPath -m uvicorn meeting_copilot.app:app --app-dir (Join-Path $repoRoot "python") --host 127.0.0.1 --port $Port --reload

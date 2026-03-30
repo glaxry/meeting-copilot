@@ -19,40 +19,33 @@ The current machine already has:
 - `cmake.exe` at `C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`
 - `cl.exe` at `C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.32.31326\bin\Hostx64\x64\cl.exe`
 - `VsDevCmd.bat` at `C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat`
+- Anaconda at `D:\anaconda`
+- `conda.exe` at `D:\anaconda\Scripts\conda.exe`
 
-The current machine does not expose the following on `PATH`:
-
-- `conda`
-- `python`
-- `cmake`
-- `cl`
-
-So Day1 provisions a repository-local Miniconda install inside the workspace.
+`conda` is still not exposed on the shell `PATH`, so repository scripts call the Anaconda executable explicitly.
 
 ## Environment outcomes
 
-- local Miniconda installed successfully at `.miniconda3/`
-- Conda environment `meeting-copilot-day1` created successfully
-- FastAPI, pytest, pybind11, and upload dependencies installed successfully
-- native extension configured and built successfully with Visual Studio 2022
+- repository workflow now uses the existing Anaconda installation instead of `.miniconda3`
+- the active project environment resolved to `C:\Users\11212\.conda\envs\meeting-copilot-day1`
+- `conda` commands are run with `--no-plugins --solver classic` in this session to avoid the local plugin and solver mismatch issues
+- helper scripts now search both the Anaconda root envs directory and the user `.conda\envs` directory
+- FastAPI, pytest, pybind11, and upload dependencies are managed through the Anaconda environment
+- native extension is built against the Anaconda environment's Python interpreter
 
 ## Design notes for Day1
 
-### API-first
+### Reuse the machine's Anaconda install
 
-The project starts from a stable API contract instead of waiting for the full native speech stack. This is the fastest path to a testable service.
+Using the existing Anaconda installation is cleaner than provisioning a second Conda distribution inside the repo. It also matches your stated local setup.
 
-### Mock transcript instead of fake complexity
+### Handle dynamic env locations
 
-It is better to expose a transparent mock backend than to pretend a placeholder is real speech recognition. The response payload explicitly marks whether the backend is mock-based.
+This machine's Conda configuration places named environments under the user profile instead of under `D:\anaconda\envs`. The helper scripts therefore resolve both locations instead of assuming one fixed env root.
 
-### Native code starts narrow
+### Keep `--no-plugins --solver classic` in automation
 
-The initial native module only returns runtime metadata. This keeps the pybind11 and CMake path narrow enough to debug before the real audio pipeline is attached.
-
-### Console-specific workaround
-
-`conda run` hit a Windows console encoding bug in this session. Day1 therefore uses the environment's `python.exe` directly for tests and service startup. That still runs the project inside the Conda environment while avoiding the unstable output path.
+This machine's Conda installation triggers a permission failure inside plugin-based virtual package detection under the agent shell. In addition, the configured default solver is `libmamba`, which is unavailable once plugins are disabled. The automation therefore forces `--no-plugins --solver classic`.
 
 ## Immediate follow-up items
 

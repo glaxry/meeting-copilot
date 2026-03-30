@@ -49,19 +49,27 @@ meeting-copilot/
 
 ## Conda environment
 
-The project is designed to run in a dedicated Conda environment.
+The project now uses the existing Anaconda installation instead of a repo-local Miniconda copy.
 
-1. Install or provision Miniconda inside the repository root.
-2. Create the environment from `environment.yml`.
-3. Run API and tests with the environment's `python.exe`.
+Current machine defaults:
 
-Example commands:
+- Anaconda root: `D:\anaconda`
+- Conda executable: `D:\anaconda\Scripts\conda.exe`
+- Actual project env path resolved by this machine: `C:\Users\11212\.conda\envs\meeting-copilot-day1`
+
+Recommended commands:
 
 ```powershell
-.miniconda3\Scripts\conda.exe env create -f environment.yml
-.miniconda3\envs\meeting-copilot-day1\python.exe -m pytest
-.miniconda3\envs\meeting-copilot-day1\python.exe -m uvicorn meeting_copilot.app:app --app-dir python --reload
+powershell -ExecutionPolicy Bypass -File scripts\create_conda_env.ps1
+powershell -ExecutionPolicy Bypass -File scripts\run_tests.ps1
+powershell -ExecutionPolicy Bypass -File scripts\run_api.ps1
 ```
+
+The helper scripts automatically handle this machine's Conda quirks:
+
+- use the existing Anaconda install
+- force `--no-plugins --solver classic` for environment creation
+- resolve the env Python from either `D:\anaconda\envs` or `C:\Users\11212\.conda\envs`
 
 ## API surface
 
@@ -83,7 +91,7 @@ Accepts a `.wav` upload and returns:
 After the Conda environment is ready, configure the C++ extension with CMake:
 
 ```powershell
-"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build -DPython3_EXECUTABLE="<conda-env-python>"
+"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build -DPython3_EXECUTABLE="C:\Users\11212\.conda\envs\meeting-copilot-day1\python.exe"
 "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build --config Release
 ```
 
@@ -91,6 +99,6 @@ The Day1 extension exports runtime metadata and gives the Python service a clean
 
 ## Documentation
 
-- Version record: `docs/versions/day1-v0.1.0.md`
+- Latest version record: `docs/versions/day1-v0.1.1.md`
 - Setup notes: `docs/notes/day1-setup-notes.md`
 - Test notes: `docs/testing/day1-test-report.md`
