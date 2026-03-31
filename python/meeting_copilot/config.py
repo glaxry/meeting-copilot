@@ -10,10 +10,12 @@ def _repo_root() -> Path:
 
 class Settings(BaseModel):
     app_name: str = "Meeting Copilot"
-    app_version: str = "0.2.0-day2"
+    app_version: str = "0.3.0-day3"
     repo_root: Path = Field(default_factory=_repo_root)
     data_dir: Path = Field(default_factory=lambda: _repo_root() / "data")
     annotations_dir: Path = Field(default_factory=lambda: _repo_root() / "data" / "annotations")
+    reports_dir: Path = Field(default_factory=lambda: _repo_root() / "reports")
+    transcription_logs_dir: Path = Field(default_factory=lambda: _repo_root() / "reports" / "transcriptions")
 
 
 @lru_cache(maxsize=1)

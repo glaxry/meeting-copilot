@@ -7,44 +7,50 @@ Meeting Copilot is a modular smart meeting assistant project built around:
 - FastAPI for service delivery
 - pybind11 for the C++ / Python boundary
 
-## Current milestone: Day2
+## Current milestone: Day3
 
-Day2 completes the first real native audio pipeline on the C++ side:
+Day3 completes the first end-to-end pybind11 transcription bridge:
 
-- WAV decoding in C++
-- frame-based energy VAD
-- speech segment extraction with timestamp windows
-- pybind11 exposure of native analysis results
-- FastAPI `/transcribe` returning multiple timestamped text blocks
+- native C++ audio analysis is still responsible for WAV parsing and VAD
+- C++ now also emits transcript segments and incremental transcription events
+- Python consumes the native result, persists a transcription log, and serves it through FastAPI
+- `/transcribe` returns audio metadata, transcript blocks, incremental events, and log metadata
 
-The text layer is still annotation-backed or mock-generated for now. Real `whisper.cpp` decoding is the next milestone.
+The text is still annotation-backed or mock-generated. Real `whisper.cpp` decoding remains the next milestone.
 
 ## What works now
 
-- `/health` reports the Day2 native backend when the C++ module is built
+- `/health` reports the Day3 native backend when the C++ module is built
 - `/transcribe` accepts `.wav` uploads
-- native C++ code detects voiced segments and their timestamps
-- Python maps annotation or mock text onto those segments
-- test coverage validates the API contract and native build path
+- native C++ code returns timestamped transcript blocks and incremental events through pybind11
+- Python stores each transcription run under `reports/transcriptions/`
+- test coverage validates mock mode, annotation mode, logs, and invalid audio handling
 
 ## Repository layout
 
 ```text
 meeting-copilot/
-├── cpp/
-│   ├── audio_preprocess.cpp
-│   ├── bindings.cpp
-│   ├── transcriber.cpp
-│   └── CMakeLists.txt
-├── data/
-├── docs/
-├── frontend/
-├── python/
-├── scripts/
-├── tests/
-├── CMakeLists.txt
-├── environment.yml
-└── README.md
++-- cpp/
+|   +-- audio_preprocess.cpp
+|   +-- bindings.cpp
+|   +-- transcriber.cpp
+|   +-- CMakeLists.txt
++-- data/
+|   +-- annotations/
+|   +-- audio/
++-- docs/
+|   +-- notes/
+|   +-- testing/
+|   +-- versions/
++-- frontend/
++-- python/
++-- reports/
+|   +-- transcriptions/
++-- scripts/
++-- tests/
++-- CMakeLists.txt
++-- environment.yml
++-- README.md
 ```
 
 ## Conda environment
@@ -69,7 +75,7 @@ The helper scripts:
 
 ### `GET /health`
 
-Returns service metadata and whether the Day2 C++ extension is active.
+Returns service metadata and whether the Day3 C++ extension is active.
 
 ### `POST /transcribe`
 
@@ -78,8 +84,10 @@ Accepts a `.wav` upload and returns:
 - audio metadata
 - detected speech segment count and speech duration
 - timestamped transcript blocks
+- incremental transcript events
 - aggregated full text
 - backend notes
+- log metadata for the persisted JSON artifact
 
 ## C++ build
 
@@ -90,7 +98,7 @@ Accepts a `.wav` upload and returns:
 
 ## Documentation
 
-- Latest version record: `docs/versions/day2-v0.2.0.md`
-- Day2 notes: `docs/notes/day2-audio-pipeline-notes.md`
-- Day2 test report: `docs/testing/day2-test-report.md`
-- Day1 history: `docs/versions/day1-v0.1.1.md`
+- Latest version record: `docs/versions/day3-v0.3.0.md`
+- Day3 notes: `docs/notes/day3-pybind-integration-notes.md`
+- Day3 test report: `docs/testing/day3-test-report.md`
+- Day2 history: `docs/versions/day2-v0.2.0.md`

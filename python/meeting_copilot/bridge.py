@@ -56,3 +56,27 @@ def analyze_audio_bytes(
         min_speech_ms=min_speech_ms,
         max_silence_ms=max_silence_ms,
     )
+
+
+def transcribe_audio_bytes(
+    audio_bytes: bytes,
+    audio_label: str = "",
+    annotation_text: str = "",
+    frame_ms: int = 30,
+    energy_threshold: float = 0.015,
+    min_speech_ms: int = 240,
+    max_silence_ms: int = 180,
+) -> dict[str, Any] | None:
+    module = _get_cpp_module()
+    if module is None or not hasattr(module, "transcribe_audio_bytes"):
+        return None
+
+    return module.transcribe_audio_bytes(
+        audio_bytes,
+        audio_label=audio_label,
+        annotation_text=annotation_text,
+        frame_ms=frame_ms,
+        energy_threshold=energy_threshold,
+        min_speech_ms=min_speech_ms,
+        max_silence_ms=max_silence_ms,
+    )

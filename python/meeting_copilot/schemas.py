@@ -10,6 +10,22 @@ class TranscriptSegment(BaseModel):
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class TranscriptEvent(BaseModel):
+    event_index: int = Field(..., ge=0)
+    chunk_index: int = Field(..., ge=0)
+    event_type: Literal["partial", "final"]
+    start_seconds: float = Field(..., ge=0.0)
+    end_seconds: float = Field(..., ge=0.0)
+    text: str = Field(..., min_length=1)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class TranscriptionLogMetadata(BaseModel):
+    log_id: str = Field(..., min_length=1)
+    relative_path: str = Field(..., min_length=1)
+    event_count: int = Field(..., ge=0)
+
+
 class AudioMetadata(BaseModel):
     filename: str
     format: Literal["wav"]
@@ -26,8 +42,10 @@ class TranscriptionResponse(BaseModel):
     audio: AudioMetadata
     transcript: list[TranscriptSegment]
     full_text: str
+    events: list[TranscriptEvent] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
     mock_backend: bool = True
+    log: TranscriptionLogMetadata | None = None
 
 
 class HealthResponse(BaseModel):

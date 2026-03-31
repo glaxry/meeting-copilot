@@ -1,14 +1,26 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+import json
 import re
 from typing import Any
 import wave
 
-from meeting_copilot.bridge import analyze_audio_bytes, get_cpp_runtime_info
+from meeting_copilot.bridge import (
+    analyze_audio_bytes,
+    get_cpp_runtime_info,
+    transcribe_audio_bytes as native_transcribe_audio_bytes,
+)
 from meeting_copilot.config import get_settings
-from meeting_copilot.schemas import AudioMetadata, TranscriptSegment, TranscriptionResponse
+from meeting_copilot.schemas import (
+    AudioMetadata,
+    TranscriptEvent,
+    TranscriptSegment,
+    TranscriptionLogMetadata,
+    TranscriptionResponse,
+)
 
 
 class UnsupportedAudioError(ValueError):
@@ -43,38 +55,141 @@ class AudioAnalysis:
     backend_name: str
 
 
-class Day2Transcriber:
-    def __init__(self, annotations_dir: Path) -> None:
+@dataclass(frozen=True)
+class TranscriptionPayload:
+    audio: AudioMetadata
+    transcript: list[TranscriptSegment]
+    events: list[TranscriptEvent]
+    full_text: str
+    notes: list[str]
+    mock_backend: bool
+
+
+class Day3Transcriber:
+    def __init__(self, annotations_dir: Path, transcription_logs_dir: Path) -> None:
         self.annotations_dir = annotations_dir
+        self.transcription_logs_dir = transcription_logs_dir
 
     def transcribe(self, filename: str, audio_bytes: bytes) -> TranscriptionResponse:
-        analysis, notes = self._analyze_audio(audio_bytes)
-        windows = self._display_windows(analysis)
         annotation_text = self._load_annotation(filename)
-
-        if annotation_text:
-            annotation_path = self.annotations_dir / f"{Path(filename).stem}.txt"
-            notes.append(f"Loaded transcript from {annotation_path.relative_to(get_settings().repo_root)}.")
-            notes.append("Day2 used the native speech windows and distributed annotation text across timestamped segments.")
-            mock_backend = False
-            transcript = self._build_annotation_segments(annotation_text, windows)
+        native_result = self._native_transcribe(filename, audio_bytes, annotation_text)
+        if native_result is not None:
+            payload = self._build_native_payload(filename, native_result)
         else:
-            notes.append("No matching transcript annotation was found, so Day2 generated mock text over native speech windows.")
-            notes.append("The C++ audio pipeline is active, but whisper.cpp text decoding is still scheduled for the next milestone.")
-            mock_backend = True
-            transcript = self._build_mock_segments(filename, windows)
+            payload = self._build_fallback_payload(filename, audio_bytes, annotation_text)
 
+        log_metadata = self._write_transcription_log(filename, payload)
+        notes = list(payload.notes)
+        notes.append(f"Stored Day3 transcription log at {log_metadata.relative_path}.")
+
+        return TranscriptionResponse(
+            audio=payload.audio,
+            transcript=payload.transcript,
+            full_text=payload.full_text,
+            events=payload.events,
+            notes=notes,
+            mock_backend=payload.mock_backend,
+            log=log_metadata,
+        )
+
+    def _native_transcribe(
+        self,
+        filename: str,
+        audio_bytes: bytes,
+        annotation_text: str | None,
+    ) -> dict[str, Any] | None:
+        try:
+            return native_transcribe_audio_bytes(
+                audio_bytes,
+                audio_label=Path(filename).stem,
+                annotation_text=annotation_text or "",
+            )
+        except Exception as exc:
+            raise UnsupportedAudioError("Only valid WAV uploads are supported.") from exc
+
+    def _build_native_payload(self, filename: str, native_result: dict[str, Any]) -> TranscriptionPayload:
+        transcript = [
+            TranscriptSegment(
+                start_seconds=round(float(segment["start_seconds"]), 3),
+                end_seconds=round(float(segment["end_seconds"]), 3),
+                text=str(segment["text"]),
+                confidence=round(float(segment["confidence"]), 3),
+            )
+            for segment in native_result["transcript_segments"]
+        ]
+        events = [
+            TranscriptEvent(
+                event_index=int(event["event_index"]),
+                chunk_index=int(event["chunk_index"]),
+                event_type=str(event["event_type"]),
+                start_seconds=round(float(event["start_seconds"]), 3),
+                end_seconds=round(float(event["end_seconds"]), 3),
+                text=str(event["text"]),
+                confidence=round(float(event["confidence"]), 3),
+            )
+            for event in native_result["transcript_events"]
+        ]
+
+        mock_backend = bool(native_result["mock_backend"])
+        backend_suffix = "mock" if mock_backend else "annotation"
+        notes = [str(note) for note in native_result.get("notes", [])]
         cpp_runtime_info = get_cpp_runtime_info()
-        backend_name = f"{analysis.backend_name}+{'annotation' if annotation_text else 'mock'}"
         if cpp_runtime_info:
             notes.append(
                 f"Detected native extension compiled with {cpp_runtime_info.get('compiler', 'unknown compiler')}."
             )
-        notes.append(
-            f"Day2 audio pipeline detected {len(windows)} speech segment(s) covering {analysis.speech_duration_seconds:.2f} seconds."
+        notes.append(f"Python received {len(events)} incremental transcription event(s) from the native bridge.")
+
+        return TranscriptionPayload(
+            audio=AudioMetadata(
+                filename=filename,
+                format="wav",
+                duration_seconds=round(float(native_result["duration_seconds"]), 3),
+                sample_rate_hz=int(native_result["sample_rate_hz"]),
+                channels=int(native_result["channels"]),
+                frame_count=int(native_result["total_frame_count"]),
+                speech_segment_count=len(native_result["speech_segments"]),
+                speech_duration_seconds=round(float(native_result["speech_duration_seconds"]), 3),
+                backend=f"{native_result['backend_name']}+{backend_suffix}",
+            ),
+            transcript=transcript,
+            events=events,
+            full_text=self._normalize_text(str(native_result["full_text"])),
+            notes=notes,
+            mock_backend=mock_backend,
         )
 
-        return TranscriptionResponse(
+    def _build_fallback_payload(
+        self,
+        filename: str,
+        audio_bytes: bytes,
+        annotation_text: str | None,
+    ) -> TranscriptionPayload:
+        analysis, notes = self._analyze_audio(audio_bytes)
+        windows = self._display_windows(analysis)
+
+        if annotation_text:
+            annotation_path = self.annotations_dir / f"{Path(filename).stem}.txt"
+            notes.append(f"Loaded transcript from {annotation_path.relative_to(get_settings().repo_root)}.")
+            notes.append("Day3 fallback distributed annotation text across the detected speech windows.")
+            transcript = self._build_annotation_segments(annotation_text, windows)
+            mock_backend = False
+        else:
+            notes.append("No annotation sidecar was found, so Day3 fallback generated mock transcript text.")
+            transcript = self._build_mock_segments(filename, windows)
+            mock_backend = True
+
+        events = self._build_transcript_events(transcript)
+        notes.append(f"Day3 fallback emitted {len(events)} incremental transcription event(s).")
+
+        if analysis.backend_name.startswith("cpp"):
+            cpp_runtime_info = get_cpp_runtime_info()
+            if cpp_runtime_info:
+                notes.append(
+                    f"Detected native extension compiled with {cpp_runtime_info.get('compiler', 'unknown compiler')}."
+                )
+
+        return TranscriptionPayload(
             audio=AudioMetadata(
                 filename=filename,
                 format="wav",
@@ -82,12 +197,13 @@ class Day2Transcriber:
                 sample_rate_hz=analysis.sample_rate_hz,
                 channels=analysis.channels,
                 frame_count=analysis.frame_count,
-                speech_segment_count=len(windows),
+                speech_segment_count=len(analysis.speech_segments),
                 speech_duration_seconds=round(analysis.speech_duration_seconds, 3),
-                backend=backend_name,
+                backend=f"{analysis.backend_name}+{'mock' if mock_backend else 'annotation'}",
             ),
             transcript=transcript,
-            full_text=" ".join(segment.text for segment in transcript),
+            events=events,
+            full_text=self._full_text_from_segments(transcript),
             notes=notes,
             mock_backend=mock_backend,
         )
@@ -118,11 +234,12 @@ class Day2Transcriber:
             native_result = analyze_audio_bytes(audio_bytes)
         except Exception as exc:
             raise UnsupportedAudioError("Only valid WAV uploads are supported.") from exc
+
         if native_result is not None:
             return self._parse_native_analysis(native_result), notes
 
         metadata = self._read_wave_metadata(audio_bytes)
-        notes.append("Native C++ module was not available, so Day2 fell back to Python WAV metadata parsing.")
+        notes.append("Native C++ module was not available, so Day3 fell back to Python WAV metadata parsing.")
         full_window = SpeechWindow(
             start_seconds=0.0,
             end_seconds=metadata.duration_seconds,
@@ -137,7 +254,7 @@ class Day2Transcriber:
             frame_count=metadata.frame_count,
             speech_duration_seconds=metadata.duration_seconds,
             speech_segments=[full_window] if metadata.duration_seconds > 0 else [],
-            backend_name="python-wave-fallback",
+            backend_name="python-day3-fallback",
         ), notes
 
     def _parse_native_analysis(self, native_result: dict[str, Any]) -> AudioAnalysis:
@@ -159,7 +276,7 @@ class Day2Transcriber:
             frame_count=int(native_result["total_frame_count"]),
             speech_duration_seconds=float(native_result["speech_duration_seconds"]),
             speech_segments=speech_segments,
-            backend_name="cpp-day2-vad",
+            backend_name="cpp-day3-analysis",
         )
 
     def _load_annotation(self, filename: str) -> str | None:
@@ -174,6 +291,9 @@ class Day2Transcriber:
         if analysis.speech_segments:
             return analysis.speech_segments
 
+        if analysis.duration_seconds <= 0.0:
+            return []
+
         return [
             SpeechWindow(
                 start_seconds=0.0,
@@ -185,6 +305,9 @@ class Day2Transcriber:
         ]
 
     def _build_annotation_segments(self, transcript_text: str, windows: list[SpeechWindow]) -> list[TranscriptSegment]:
+        if not windows:
+            return []
+
         effective_windows = windows
         target_segment_count = max(1, min(len(windows), self._max_chunk_count(transcript_text)))
         if target_segment_count < len(windows):
@@ -212,13 +335,55 @@ class Day2Transcriber:
                     start_seconds=round(window.start_seconds, 3),
                     end_seconds=round(window.end_seconds, 3),
                     text=(
-                        f"Day2 mock speech segment {index + 1} for '{stem}' "
+                        f"Day3 mock speech segment {index + 1} for '{stem}' "
                         f"from {window.start_seconds:.2f}s to {window.end_seconds:.2f}s."
                     ),
                     confidence=self._segment_confidence(window),
                 )
             )
         return transcript
+
+    def _build_transcript_events(self, transcript: list[TranscriptSegment]) -> list[TranscriptEvent]:
+        events: list[TranscriptEvent] = []
+        for index, segment in enumerate(transcript):
+            duration_seconds = max(0.0, segment.end_seconds - segment.start_seconds)
+            partial_end_seconds = round(segment.start_seconds + duration_seconds * 0.6, 3)
+            partial_text = self._partial_text(segment.text)
+            events.append(
+                TranscriptEvent(
+                    event_index=len(events),
+                    chunk_index=index,
+                    event_type="partial",
+                    start_seconds=segment.start_seconds,
+                    end_seconds=partial_end_seconds,
+                    text=partial_text,
+                    confidence=segment.confidence,
+                )
+            )
+            events.append(
+                TranscriptEvent(
+                    event_index=len(events),
+                    chunk_index=index,
+                    event_type="final",
+                    start_seconds=segment.start_seconds,
+                    end_seconds=segment.end_seconds,
+                    text=segment.text,
+                    confidence=segment.confidence,
+                )
+            )
+        return events
+
+    def _partial_text(self, text: str) -> str:
+        normalized = self._normalize_text(text)
+        words = normalized.split()
+        if len(words) > 1:
+            return " ".join(words[: max(1, len(words) // 2)])
+        if len(normalized) <= 1:
+            return normalized
+        return normalized[: max(1, len(normalized) // 2)]
+
+    def _full_text_from_segments(self, transcript: list[TranscriptSegment]) -> str:
+        return self._normalize_text(" ".join(segment.text for segment in transcript))
 
     def _max_chunk_count(self, transcript_text: str) -> int:
         word_count = len(transcript_text.split())
@@ -227,7 +392,7 @@ class Day2Transcriber:
         return max(1, len(transcript_text))
 
     def _split_text_into_chunks(self, transcript_text: str, segment_count: int) -> list[str]:
-        cleaned_text = re.sub(r"\s+", " ", transcript_text.strip())
+        cleaned_text = self._normalize_text(transcript_text)
         if segment_count <= 1:
             return [cleaned_text]
 
@@ -274,14 +439,54 @@ class Day2Transcriber:
             )
         return merged
 
-    def _segment_confidence(self, window: SpeechWindow) -> float | None:
-        if window.average_energy <= 0.0:
-            return None
+    def _segment_confidence(self, window: SpeechWindow) -> float:
         confidence = 0.55 + window.average_energy * 4.0
         return round(max(0.2, min(0.99, confidence)), 3)
 
+    def _normalize_text(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text.strip())
+
+    def _write_transcription_log(
+        self,
+        filename: str,
+        payload: TranscriptionPayload,
+    ) -> TranscriptionLogMetadata:
+        settings = get_settings()
+        self.transcription_logs_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now(timezone.utc)
+        log_id = f"{timestamp.strftime('%Y%m%dT%H%M%S%fZ')}_{self._slugify(Path(filename).stem)}"
+        log_path = self.transcription_logs_dir / f"{log_id}.json"
+
+        log_payload = {
+            "log_id": log_id,
+            "created_at_utc": timestamp.isoformat().replace("+00:00", "Z"),
+            "source_filename": filename,
+            "audio": payload.audio.model_dump(),
+            "transcript": [segment.model_dump() for segment in payload.transcript],
+            "events": [event.model_dump() for event in payload.events],
+            "full_text": payload.full_text,
+            "notes": payload.notes,
+            "mock_backend": payload.mock_backend,
+        }
+        log_path.write_text(json.dumps(log_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return TranscriptionLogMetadata(
+            log_id=log_id,
+            relative_path=log_path.relative_to(settings.repo_root).as_posix(),
+            event_count=len(payload.events),
+        )
+
+    def _slugify(self, value: str) -> str:
+        cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", value.strip())
+        cleaned = cleaned.strip("-")
+        return cleaned or "transcript"
+
 
 @lru_cache(maxsize=1)
-def get_transcriber() -> Day2Transcriber:
+def get_transcriber() -> Day3Transcriber:
     settings = get_settings()
-    return Day2Transcriber(annotations_dir=settings.annotations_dir)
+    return Day3Transcriber(
+        annotations_dir=settings.annotations_dir,
+        transcription_logs_dir=settings.transcription_logs_dir,
+    )

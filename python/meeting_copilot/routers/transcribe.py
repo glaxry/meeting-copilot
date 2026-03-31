@@ -1,4 +1,4 @@
-﻿from typing import Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
@@ -10,7 +10,7 @@ router = APIRouter(tags=["transcription"])
 
 @router.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_audio(
-    file: Annotated[UploadFile, File(description="Upload a WAV file for Day1 transcription.")]
+    file: Annotated[UploadFile, File(description="Upload a WAV file for Day3 transcription.")]
 ) -> TranscriptionResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file must include a filename.")

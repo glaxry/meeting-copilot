@@ -1,10 +1,18 @@
 import io
+import json
 import math
+from pathlib import Path
 import wave
 
 from fastapi.testclient import TestClient
 
 from meeting_copilot.app import app
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ANNOTATION_TEXT = (
+    REPO_ROOT / "data" / "annotations" / "annotated_sync.txt"
+).read_text(encoding="utf-8").strip()
+
 client = TestClient(app)
 
 
@@ -38,6 +46,12 @@ def build_pattern_wav(sample_rate_hz: int = 16000) -> bytes:
     return buffer.getvalue()
 
 
+def read_log_payload(relative_path: str) -> dict:
+    log_path = REPO_ROOT / Path(relative_path)
+    assert log_path.exists()
+    return json.loads(log_path.read_text(encoding="utf-8"))
+
+
 def test_health_endpoint_reports_service_status() -> None:
     response = client.get("/health")
 
@@ -45,10 +59,10 @@ def test_health_endpoint_reports_service_status() -> None:
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["service"] == "Meeting Copilot"
-    assert payload["version"] == "0.2.0-day2"
+    assert payload["version"] == "0.3.0-day3"
 
 
-def test_transcribe_endpoint_returns_segmented_day2_payload() -> None:
+def test_transcribe_endpoint_returns_day3_mock_payload_and_log() -> None:
     audio_bytes = build_pattern_wav()
 
     response = client.post(
@@ -66,13 +80,45 @@ def test_transcribe_endpoint_returns_segmented_day2_payload() -> None:
     assert payload["audio"]["duration_seconds"] == 1.2
     assert payload["audio"]["speech_duration_seconds"] > 0.0
     assert payload["audio"]["speech_segment_count"] >= 1
-    assert len(payload["transcript"]) == payload["audio"]["speech_segment_count"]
     assert payload["mock_backend"] is True
-    assert payload["transcript"][0]["text"].startswith("Day2 mock speech segment")
+    assert payload["transcript"][0]["text"].startswith("Day3 mock speech segment")
+    assert payload["log"]["relative_path"].startswith("reports/transcriptions/")
+    assert payload["log"]["event_count"] == len(payload["events"])
+    assert {event["event_type"] for event in payload["events"]} == {"partial", "final"}
+    assert any("transcription log" in note.lower() for note in payload["notes"])
 
-    if payload["audio"]["backend"].startswith("cpp-day2-vad"):
+    log_payload = read_log_payload(payload["log"]["relative_path"])
+    assert log_payload["source_filename"] == "team_sync.wav"
+    assert log_payload["mock_backend"] is True
+    assert len(log_payload["events"]) == payload["log"]["event_count"]
+
+    if payload["audio"]["backend"].startswith("cpp-day3-pybind"):
         assert payload["audio"]["speech_segment_count"] == 2
         assert payload["transcript"][0]["start_seconds"] < payload["transcript"][1]["start_seconds"]
+
+
+def test_transcribe_endpoint_uses_annotation_sidecar_and_persists_events() -> None:
+    audio_bytes = build_pattern_wav()
+
+    response = client.post(
+        "/transcribe",
+        files={"file": ("annotated_sync.wav", audio_bytes, "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["mock_backend"] is False
+    assert payload["audio"]["backend"].endswith("+annotation")
+    assert payload["full_text"] == ANNOTATION_TEXT
+    assert len(payload["events"]) >= len(payload["transcript"])
+    assert payload["events"][0]["event_type"] == "partial"
+    assert payload["events"][1]["event_type"] == "final"
+
+    log_payload = read_log_payload(payload["log"]["relative_path"])
+    assert log_payload["full_text"] == ANNOTATION_TEXT
+    assert log_payload["mock_backend"] is False
+    assert log_payload["audio"]["backend"] == payload["audio"]["backend"]
 
 
 def test_transcribe_endpoint_rejects_invalid_audio() -> None:

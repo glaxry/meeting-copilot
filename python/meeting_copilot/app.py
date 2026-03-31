@@ -10,7 +10,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="Day2 native audio pipeline for the Meeting Copilot project.",
+    description="Day3 pybind11 transcription bridge for the Meeting Copilot project.",
 )
 app.include_router(transcribe_router)
 
