@@ -1,4 +1,4 @@
-﻿from typing import Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,8 @@ class AudioMetadata(BaseModel):
     sample_rate_hz: int = Field(..., gt=0)
     channels: int = Field(..., gt=0)
     frame_count: int = Field(..., ge=0)
+    speech_segment_count: int = Field(..., ge=0)
+    speech_duration_seconds: float = Field(..., ge=0.0)
     backend: str
 
 

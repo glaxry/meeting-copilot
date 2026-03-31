@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
 
 from meeting_copilot.bridge import get_cpp_runtime_info
 from meeting_copilot.config import get_settings
@@ -10,7 +10,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="Day1 vertical slice for the Meeting Copilot project.",
+    description="Day2 native audio pipeline for the Meeting Copilot project.",
 )
 app.include_router(transcribe_router)
 

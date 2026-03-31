@@ -1,45 +1,45 @@
-﻿# Meeting Copilot
+# Meeting Copilot
 
-Meeting Copilot is a modular smart meeting assistant project based on the Day1 scope defined in the course plan:
+Meeting Copilot is a modular smart meeting assistant project built around:
 
-- C++ for low-latency audio processing and future `whisper.cpp` integration
-- Python for API orchestration and NLP pipelines
+- C++ for performance-sensitive audio processing
+- Python for API orchestration and future NLP pipelines
 - FastAPI for service delivery
 - pybind11 for the C++ / Python boundary
 
-## Day1 scope
+## Current milestone: Day2
 
-Day1 focuses on getting a working vertical slice online:
+Day2 completes the first real native audio pipeline on the C++ side:
 
-- repository and directory layout
-- Conda-based Python environment definition
-- CMake + pybind11 extension skeleton
-- FastAPI service with `/health` and `/transcribe`
-- pytest coverage for the initial API surface
-- version notes, setup notes, and test notes
+- WAV decoding in C++
+- frame-based energy VAD
+- speech segment extraction with timestamp windows
+- pybind11 exposure of native analysis results
+- FastAPI `/transcribe` returning multiple timestamped text blocks
 
-## Current Day1 status
+The text layer is still annotation-backed or mock-generated for now. Real `whisper.cpp` decoding is the next milestone.
 
-This version intentionally keeps the speech backend lightweight:
+## What works now
 
+- `/health` reports the Day2 native backend when the C++ module is built
 - `/transcribe` accepts `.wav` uploads
-- audio metadata is parsed locally
-- transcript text is resolved from `data/annotations/<filename>.txt` when available
-- otherwise a deterministic Day1 mock transcript is returned
-
-This lets the project expose a stable API contract on Day1 while keeping the real `whisper.cpp` integration for the next iteration.
+- native C++ code detects voiced segments and their timestamps
+- Python maps annotation or mock text onto those segments
+- test coverage validates the API contract and native build path
 
 ## Repository layout
 
 ```text
 meeting-copilot/
 ├── cpp/
+│   ├── audio_preprocess.cpp
+│   ├── bindings.cpp
+│   ├── transcriber.cpp
+│   └── CMakeLists.txt
 ├── data/
 ├── docs/
-├── experiments/
 ├── frontend/
 ├── python/
-├── reports/
 ├── scripts/
 ├── tests/
 ├── CMakeLists.txt
@@ -49,13 +49,7 @@ meeting-copilot/
 
 ## Conda environment
 
-The project now uses the existing Anaconda installation instead of a repo-local Miniconda copy.
-
-Current machine defaults:
-
-- Anaconda root: `D:\anaconda`
-- Conda executable: `D:\anaconda\Scripts\conda.exe`
-- Actual project env path resolved by this machine: `C:\Users\11212\.conda\envs\meeting-copilot-day1`
+The project uses the existing Anaconda installation on this machine.
 
 Recommended commands:
 
@@ -65,9 +59,9 @@ powershell -ExecutionPolicy Bypass -File scripts\run_tests.ps1
 powershell -ExecutionPolicy Bypass -File scripts\run_api.ps1
 ```
 
-The helper scripts automatically handle this machine's Conda quirks:
+The helper scripts:
 
-- use the existing Anaconda install
+- use `D:\anaconda\Scripts\conda.exe`
 - force `--no-plugins --solver classic` for environment creation
 - resolve the env Python from either `D:\anaconda\envs` or `C:\Users\11212\.conda\envs`
 
@@ -75,30 +69,28 @@ The helper scripts automatically handle this machine's Conda quirks:
 
 ### `GET /health`
 
-Returns service metadata and whether the optional Day1 C++ extension is available.
+Returns service metadata and whether the Day2 C++ extension is active.
 
 ### `POST /transcribe`
 
 Accepts a `.wav` upload and returns:
 
 - audio metadata
-- a transcript segment list
+- detected speech segment count and speech duration
+- timestamped transcript blocks
 - aggregated full text
-- Day1 notes about the active backend
+- backend notes
 
 ## C++ build
 
-After the Conda environment is ready, configure the C++ extension with CMake:
-
 ```powershell
-"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build -DPython3_EXECUTABLE="C:\Users\11212\.conda\envs\meeting-copilot-day1\python.exe"
+"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build -G "Visual Studio 17 2022" -A x64 -DPython3_EXECUTABLE="C:\Users\11212\.conda\envs\meeting-copilot-day1\python.exe"
 "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build --config Release
 ```
 
-The Day1 extension exports runtime metadata and gives the Python service a clean place to attach future native audio logic.
-
 ## Documentation
 
-- Latest version record: `docs/versions/day1-v0.1.1.md`
-- Setup notes: `docs/notes/day1-setup-notes.md`
-- Test notes: `docs/testing/day1-test-report.md`
+- Latest version record: `docs/versions/day2-v0.2.0.md`
+- Day2 notes: `docs/notes/day2-audio-pipeline-notes.md`
+- Day2 test report: `docs/testing/day2-test-report.md`
+- Day1 history: `docs/versions/day1-v0.1.1.md`

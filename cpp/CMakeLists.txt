@@ -24,6 +24,7 @@ find_package(pybind11 CONFIG REQUIRED)
 
 pybind11_add_module(
     meeting_copilot_cpp
+    audio_preprocess.cpp
     bindings.cpp
     transcriber.cpp
 )

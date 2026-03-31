@@ -21,7 +21,7 @@ dist/
 cmake-build*/
 CMakeCache.txt
 CMakeFiles/
-Testing/
+/Testing/
 compile_commands.json
 *.obj
 *.lib
